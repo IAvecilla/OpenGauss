@@ -1211,20 +1211,20 @@ class GatewayRunner:
                 + cli_only_managed_workflow_message("/autoformalize")
             )
 
-        if command in {"prove", "draft", "autoprove", "formalize", "autoformalize"}:
+        if command in {"prove", "draft", "autoprove", "formalize", "autoformalize", "optimize", "autooptimize"}:
             from gauss_cli.autoformalize import cli_only_managed_workflow_message
             return cli_only_managed_workflow_message(f"/{command}")
 
         if command == "plan":
             return (
                 "`/plan` is no longer part of the default Gauss workflow. "
-                "Use `/prove`, `/draft`, `/autoprove`, `/formalize`, or `/autoformalize` from the interactive Gauss CLI for Lean work."
+                "Use `/prove`, `/draft`, `/autoprove`, `/formalize`, `/autoformalize`, `/optimize`, or `/autooptimize` from the interactive Gauss CLI for Lean work."
             )
 
         if command == "skills":
             return (
                 "Bundled skills are not part of the default Gauss distribution. "
-                "Gauss stages `/prove`, `/draft`, `/autoprove`, `/formalize`, and `/autoformalize` automatically."
+                "Gauss stages `/prove`, `/draft`, `/autoprove`, `/formalize`, `/autoformalize`, `/optimize`, and `/autooptimize` automatically."
             )
 
         if command == "reload-mcp":
@@ -1977,6 +1977,8 @@ class GatewayRunner:
             "`/autoprove [scope]` — Launch autonomous managed proving from the interactive CLI",
             "`/formalize [claim]` — Launch interactive draft-plus-prove from the interactive CLI",
             "`/autoformalize [source/flags]` — Launch autonomous end-to-end formalization from the interactive CLI",
+            "`/optimize [spec]` — Launch interactive AMO-Lean optimization from the interactive CLI",
+            "`/autooptimize [spec]` — Launch autonomous AMO-Lean optimization from the interactive CLI",
             "`/new` — Start a new conversation",
             "`/reset` — Reset conversation history",
             "`/status` — Show session info",

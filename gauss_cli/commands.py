@@ -26,6 +26,8 @@ COMMANDS_BY_CATEGORY = {
         "/autoprove": "Spawn a managed backend agent for the autonomous Lean autoprove workflow",
         "/formalize": "Spawn a managed backend agent for the interactive Lean formalize workflow",
         "/autoformalize": "Spawn a managed backend agent for the autonomous Lean autoformalize workflow",
+        "/optimize": "Spawn a managed backend agent for the interactive AMO-Lean optimize workflow",
+        "/autooptimize": "Spawn a managed backend agent for the autonomous AMO-Lean autooptimize workflow",
         "/autoformalize-backend": "Show or change the managed workflow backend",
         "/swarm": "Show workflow agents · /swarm attach <id> · /swarm cancel <id>",
     },

@@ -25,7 +25,8 @@ from gauss_cli.project import (
 AUTOFORMALIZE_USAGE = (
     "Usage: /prove [scope or flags] | /draft [topic or flags] | "
     "/autoprove [scope or flags] | /formalize [topic or flags] | "
-    "/autoformalize [topic or flags]"
+    "/autoformalize [topic or flags] | /optimize [spec or flags] | "
+    "/autooptimize [spec or flags]"
 )
 CLAUDE_MODEL = "claude-opus-4-6"
 DEFAULT_MANAGED_CLAUDE_THEME = "dark"
@@ -35,6 +36,11 @@ LEAN_LSP_MCP_GIT_SPEC = (
     "git+https://github.com/oOo0oOo/lean-lsp-mcp.git@"
     "2c331c78a7bb242aab983f40605c3d2b48eeeb3d"
 )
+AMO_LEAN_URL = "https://github.com/lambdaclass/amo-lean.git"
+AMO_LEAN_REV = "main"
+OPTISAT_URL = "https://github.com/lambdaclass/optisat_lean.git"
+OPTISAT_REV = "main"
+_AMO_LEAN_WORKFLOW_KINDS = frozenset({"optimize", "autooptimize"})
 CLAUDE_AUTH_ENV_KEYS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_TOKEN", "ANTHROPIC_API_KEY")
 CODEX_AUTH_ENV_KEYS = ("OPENAI_API_KEY",)
 DEFAULT_AUTOFORMALIZE_BACKEND = "claude-code"
@@ -59,6 +65,9 @@ _WORKFLOW_ALIAS_MAP = {
     "/formalize": ("formalize", "/formalize", "/lean4:formalize"),
     "/autoformalize": ("autoformalize", "/autoformalize", "/lean4:autoformalize"),
     "/auto_formalize": ("autoformalize", "/autoformalize", "/lean4:autoformalize"),
+    "/optimize": ("optimize", "/optimize", "/lean4:optimize"),
+    "/autooptimize": ("autooptimize", "/autooptimize", "/lean4:autooptimize"),
+    "/auto_optimize": ("autooptimize", "/autooptimize", "/lean4:autooptimize"),
 }
 
 
@@ -128,6 +137,8 @@ class ManagedContext:
     backend_config_path: Path | None = None
     skills_root: Path | None = None
     instructions_path: Path | None = None
+    amo_lean_root: Path | None = None
+    optisat_root: Path | None = None
 
     @property
     def claude_home(self) -> Path:
@@ -187,6 +198,16 @@ class AutoformalizeLaunchPlan:
                 if self.managed_context.instructions_path
                 else ""
             ),
+            "amo_lean_root": (
+                str(self.managed_context.amo_lean_root)
+                if self.managed_context.amo_lean_root
+                else ""
+            ),
+            "optisat_root": (
+                str(self.managed_context.optisat_root)
+                if self.managed_context.optisat_root
+                else ""
+            ),
         }
 
 
@@ -209,6 +230,8 @@ class SharedLeanBundle:
     scripts_root: Path
     references_root: Path
     uv_runner: tuple[str, ...]
+    amo_lean_source: Path | None = None
+    optisat_source: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +312,7 @@ def resolve_autoformalize_request(
         real_home=real_home,
         git_executable=git_exe,
         uv_runner=uv_runner,
+        workflow_kind=workflow.workflow_kind,
     )
     runtime = _resolve_backend_runtime(
         backend_name=backend_name,
@@ -633,6 +657,7 @@ def _prepare_shared_bundle(
     real_home: Path,
     git_executable: str,
     uv_runner: Sequence[str],
+    workflow_kind: str = "",
 ) -> SharedLeanBundle:
     managed_state_base = _resolve_managed_state_base(config, env)
     managed_root = _managed_root(managed_state_base, backend_name)
@@ -666,6 +691,28 @@ def _prepare_shared_bundle(
             f"Managed Lean bundle is incomplete after checkout: {rendered}"
         )
 
+    # Conditionally stage AMO-Lean assets for optimize workflows
+    amo_lean_source: Path | None = None
+    optisat_source: Path | None = None
+    if workflow_kind in _AMO_LEAN_WORKFLOW_KINDS:
+        amo_lean_checkout = assets_root / "amo-lean"
+        _ensure_git_checkout(
+            repo_url=AMO_LEAN_URL,
+            revision=AMO_LEAN_REV,
+            destination=amo_lean_checkout,
+            git_executable=git_executable,
+        )
+        amo_lean_source = amo_lean_checkout
+
+        optisat_checkout = assets_root / "optisat_lean"
+        _ensure_git_checkout(
+            repo_url=OPTISAT_URL,
+            revision=OPTISAT_REV,
+            destination=optisat_checkout,
+            git_executable=git_executable,
+        )
+        optisat_source = optisat_checkout
+
     return SharedLeanBundle(
         backend_name=backend_name,
         managed_root=managed_root,
@@ -682,6 +729,8 @@ def _prepare_shared_bundle(
         scripts_root=scripts_root,
         references_root=references_root,
         uv_runner=tuple(uv_runner),
+        amo_lean_source=amo_lean_source,
+        optisat_source=optisat_source,
     )
 
 
@@ -815,6 +864,8 @@ def _build_claude_runtime(
         mcp_config_path=mcp_config_path,
         backend_config_path=backend_config_path,
         skills_root=skills_root,
+        amo_lean_root=shared_bundle.amo_lean_source,
+        optisat_root=shared_bundle.optisat_source,
     )
 
     managed_context = ManagedContext(
@@ -830,6 +881,8 @@ def _build_claude_runtime(
         project_manifest_path=shared_bundle.project.manifest_path,
         backend_config_path=backend_config_path,
         skills_root=skills_root,
+        amo_lean_root=shared_bundle.amo_lean_source,
+        optisat_root=shared_bundle.optisat_source,
     )
 
     child_env = dict(base_environment)
@@ -853,6 +906,10 @@ def _build_claude_runtime(
             "GAUSS_YOLO_MODE": "1",
         }
     )
+    if shared_bundle.amo_lean_source is not None:
+        child_env["AMO_LEAN_ROOT"] = str(shared_bundle.amo_lean_source)
+    if shared_bundle.optisat_source is not None:
+        child_env["OPTISAT_ROOT"] = str(shared_bundle.optisat_source)
     if startup_context_path is not None:
         child_env["GAUSS_AUTOFORMALIZE_CONTEXT"] = str(startup_context_path)
 
@@ -956,6 +1013,8 @@ def _build_codex_runtime(
         mcp_config_path=codex_config_path,
         backend_config_path=codex_config_path,
         skills_root=skills_root,
+        amo_lean_root=shared_bundle.amo_lean_source,
+        optisat_root=shared_bundle.optisat_source,
     )
     _write_codex_instructions(
         instructions_path=instructions_path,
@@ -990,6 +1049,8 @@ def _build_codex_runtime(
         backend_config_path=codex_config_path,
         skills_root=skills_root,
         instructions_path=instructions_path,
+        amo_lean_root=shared_bundle.amo_lean_source,
+        optisat_root=shared_bundle.optisat_source,
     )
 
     child_env = dict(base_environment)
@@ -1014,6 +1075,10 @@ def _build_codex_runtime(
     if startup_context_path is not None:
         child_env["GAUSS_AUTOFORMALIZE_CONTEXT"] = str(startup_context_path)
     child_env["GAUSS_AUTOFORMALIZE_INSTRUCTIONS"] = str(instructions_path)
+    if shared_bundle.amo_lean_source is not None:
+        child_env["AMO_LEAN_ROOT"] = str(shared_bundle.amo_lean_source)
+    if shared_bundle.optisat_source is not None:
+        child_env["OPTISAT_ROOT"] = str(shared_bundle.optisat_source)
 
     argv = [
         codex_exe,
@@ -1347,6 +1412,10 @@ def _managed_workflow_doc_path(plugin_root: Path, workflow_kind: str) -> Path | 
     candidate = plugin_root / "commands" / f"{workflow_kind}.md"
     if candidate.is_file():
         return candidate
+    # Fallback: check bundled workflow docs shipped with OpenGauss
+    bundled = Path(__file__).resolve().parent.parent / "assets" / "workflow-docs" / f"{workflow_kind}.md"
+    if bundled.is_file():
+        return bundled
     return None
 
 
@@ -1450,6 +1519,8 @@ def _write_startup_context(
     mcp_config_path: Path,
     backend_config_path: Path | None = None,
     skills_root: Path | None = None,
+    amo_lean_root: Path | None = None,
+    optisat_root: Path | None = None,
 ) -> Path | None:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = startup_dir / f"{stamp}-{workflow.workflow_kind}.md"
@@ -1470,6 +1541,10 @@ def _write_startup_context(
         lines.append(f"- Managed Lean workflow guide: `{workflow_doc_path}`")
     if skills_root is not None:
         lines.append(f"- Managed Lean skill root: `{skills_root}`")
+    if amo_lean_root is not None:
+        lines.append(f"- AMO-Lean root: `{amo_lean_root}`")
+    if optisat_root is not None:
+        lines.append(f"- OptiSat (e-graph engine) root: `{optisat_root}`")
     if backend_config_path is not None and backend_config_path == mcp_config_path:
         lines.append(f"- Managed backend + MCP config: `{mcp_config_path}`")
     else:

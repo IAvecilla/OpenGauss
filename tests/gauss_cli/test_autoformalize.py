@@ -70,7 +70,7 @@ def _shared_bundle(
     (skill_source / "SKILL.md").write_text("# Lean4\n", encoding="utf-8")
     (scripts_root / "prove.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     (references_root / "README.md").write_text("refs\n", encoding="utf-8")
-    for command_name in ("prove", "draft", "autoprove", "formalize", "autoformalize"):
+    for command_name in ("prove", "draft", "autoprove", "formalize", "autoformalize", "optimize", "autooptimize"):
         (commands_root / f"{command_name}.md").write_text(
             f"# {command_name}\n",
             encoding="utf-8",
@@ -104,6 +104,9 @@ def _shared_bundle(
         ("/auto_proof Main.lean", "autoprove", "/autoprove", "/lean4:autoprove Main.lean"),
         ("/formalize --source ./paper.pdf", "formalize", "/formalize", "/lean4:formalize --source ./paper.pdf"),
         ("/autoformalize --source ./paper.pdf --claim-select=first --out=Paper.lean", "autoformalize", "/autoformalize", "/lean4:autoformalize --source ./paper.pdf --claim-select=first --out=Paper.lean"),
+        ("/optimize Main.lean", "optimize", "/optimize", "/lean4:optimize Main.lean"),
+        ("/autooptimize --target=C Main.lean", "autooptimize", "/autooptimize", "/lean4:autooptimize --target=C Main.lean"),
+        ("/auto_optimize Main.lean", "autooptimize", "/autooptimize", "/lean4:autooptimize Main.lean"),
     ],
 )
 def test_parse_managed_workflow_command_normalizes_aliases(
@@ -760,3 +763,131 @@ def test_claude_permission_args_respects_effective_root(monkeypatch):
     assert autoformalize._claude_permission_args() == ("--permission-mode", "dontAsk")
     monkeypatch.setattr(autoformalize, "_is_effective_root", lambda: False)
     assert autoformalize._claude_permission_args() == ("--dangerously-skip-permissions",)
+
+
+def test_shared_lean_bundle_amo_lean_fields_default_to_none(tmp_path: Path):
+    """SharedLeanBundle should have None amo_lean/optisat fields by default."""
+    bundle = _shared_bundle(tmp_path)
+    assert bundle.amo_lean_source is None
+    assert bundle.optisat_source is None
+
+
+def test_shared_lean_bundle_amo_lean_fields_can_be_set(tmp_path: Path):
+    """SharedLeanBundle should accept amo_lean/optisat paths."""
+    project, active_cwd = _init_project(tmp_path)
+    amo_lean_path = tmp_path / "amo-lean"
+    optisat_path = tmp_path / "optisat_lean"
+    amo_lean_path.mkdir()
+    optisat_path.mkdir()
+
+    bundle = autoformalize.SharedLeanBundle(
+        backend_name="claude-code",
+        managed_root=tmp_path / "managed",
+        assets_root=tmp_path / "assets",
+        startup_dir=tmp_path / "startup",
+        mcp_dir=tmp_path / "mcp",
+        project=project,
+        project_root=project.root,
+        lean_root=project.lean_root,
+        active_cwd=active_cwd,
+        real_home=tmp_path / "home",
+        plugin_source=tmp_path / "plugin",
+        skill_source=tmp_path / "skill",
+        scripts_root=tmp_path / "scripts",
+        references_root=tmp_path / "refs",
+        uv_runner=("/usr/bin/uvx",),
+        amo_lean_source=amo_lean_path,
+        optisat_source=optisat_path,
+    )
+    assert bundle.amo_lean_source == amo_lean_path
+    assert bundle.optisat_source == optisat_path
+
+
+def test_managed_context_amo_lean_fields(tmp_path: Path):
+    """ManagedContext should expose amo_lean_root and optisat_root."""
+    amo_path = tmp_path / "amo-lean"
+    optisat_path = tmp_path / "optisat"
+
+    ctx = autoformalize.ManagedContext(
+        backend_name="claude-code",
+        managed_root=tmp_path / "managed",
+        project_root=tmp_path / "project",
+        lean_root=tmp_path / "lean",
+        backend_home=tmp_path / "home",
+        plugin_root=tmp_path / "plugin",
+        mcp_config_path=tmp_path / "mcp.json",
+        startup_context_path=None,
+        assets_root=tmp_path / "assets",
+        amo_lean_root=amo_path,
+        optisat_root=optisat_path,
+    )
+    assert ctx.amo_lean_root == amo_path
+    assert ctx.optisat_root == optisat_path
+
+
+def test_staged_paths_includes_amo_lean_fields(tmp_path: Path):
+    """AutoformalizeLaunchPlan.staged_paths() should include AMO-Lean fields."""
+    project, _ = _init_project(tmp_path)
+    amo_path = tmp_path / "amo-lean"
+
+    ctx = autoformalize.ManagedContext(
+        backend_name="claude-code",
+        managed_root=tmp_path / "managed",
+        project_root=project.root,
+        lean_root=project.lean_root,
+        backend_home=tmp_path / "home",
+        plugin_root=tmp_path / "plugin",
+        mcp_config_path=tmp_path / "mcp.json",
+        startup_context_path=None,
+        assets_root=tmp_path / "assets",
+        amo_lean_root=amo_path,
+        optisat_root=None,
+    )
+    plan = autoformalize.AutoformalizeLaunchPlan(
+        handoff_request=autoformalize.HandoffRequest(
+            argv=("claude",), cwd=str(project.root), env={},
+            mode="auto", requested_mode="auto", source="test", label="test",
+        ),
+        managed_context=ctx,
+        user_instruction="",
+        project=project,
+        workflow_kind="optimize",
+        frontend_command="/optimize",
+        canonical_command="/optimize",
+        backend_command="/lean4:optimize",
+    )
+    paths = plan.staged_paths()
+    assert paths["amo_lean_root"] == str(amo_path)
+    assert paths["optisat_root"] == ""
+
+
+def test_startup_context_includes_amo_lean_paths(tmp_path: Path):
+    """_write_startup_context should include AMO-Lean paths when provided."""
+    startup_dir = tmp_path / "startup"
+    startup_dir.mkdir()
+    amo_path = tmp_path / "amo-lean"
+    optisat_path = tmp_path / "optisat"
+
+    workflow = autoformalize.ManagedWorkflowSpec(
+        workflow_kind="optimize",
+        frontend_command="/optimize",
+        canonical_command="/optimize",
+        backend_command="/lean4:optimize",
+        workflow_args="",
+    )
+    path = autoformalize._write_startup_context(
+        startup_dir=startup_dir,
+        backend_name="claude-code",
+        project_root=tmp_path / "project",
+        lean_root=tmp_path / "lean",
+        active_cwd=tmp_path,
+        user_instruction="",
+        workflow=workflow,
+        plugin_root=tmp_path / "plugin",
+        mcp_config_path=tmp_path / "mcp.json",
+        amo_lean_root=amo_path,
+        optisat_root=optisat_path,
+    )
+    content = path.read_text(encoding="utf-8")
+    assert f"AMO-Lean root: `{amo_path}`" in content
+    assert f"OptiSat (e-graph engine) root: `{optisat_path}`" in content

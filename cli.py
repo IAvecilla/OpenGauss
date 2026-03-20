@@ -1562,6 +1562,9 @@ class GaussCLI:
             or cmd_lower.startswith("/autoprove")
             or cmd_lower.startswith("/auto_proof")
             or cmd_lower.startswith("/handoff")
+            or cmd_lower.startswith("/optimize")
+            or cmd_lower.startswith("/autooptimize")
+            or cmd_lower.startswith("/auto_optimize")
         ):
             return "Preparing managed Lean workflow session..."
         if cmd_lower.startswith("/project"):
@@ -4035,6 +4038,8 @@ class GaussCLI:
             or cmd_lower.startswith("/formalize ")
             or cmd_lower == "/draft"
             or cmd_lower.startswith("/draft ")
+            or cmd_lower == "/optimize"
+            or cmd_lower.startswith("/optimize ")
         ):
             self._handle_interactive_workflow_command(cmd_original)
         elif (
@@ -4046,6 +4051,10 @@ class GaussCLI:
             or cmd_lower.startswith("/autoprove ")
             or cmd_lower == "/auto_proof"
             or cmd_lower.startswith("/auto_proof ")
+            or cmd_lower == "/autooptimize"
+            or cmd_lower.startswith("/autooptimize ")
+            or cmd_lower == "/auto_optimize"
+            or cmd_lower.startswith("/auto_optimize ")
         ):
             self._handle_managed_workflow_command(cmd_original)
         elif cmd_lower == "/swarm" or cmd_lower.startswith("/swarm "):
@@ -4059,8 +4068,8 @@ class GaussCLI:
         elif cmd_lower == "/plan" or cmd_lower.startswith("/plan "):
             self._print_surface_notice(
                 "[bold yellow]`/plan` is no longer part of the default Gauss workflow.[/] "
-                "[dim]Use `/prove`, `/draft`, `/autoprove`, `/formalize`, or `/autoformalize` for Lean work.[/]",
-                "`/plan` is no longer part of the default Gauss workflow. Use /prove, /draft, /autoprove, /formalize, or /autoformalize for Lean work.",
+                "[dim]Use `/prove`, `/draft`, `/autoprove`, `/formalize`, `/autoformalize`, `/optimize`, or `/autooptimize` for Lean work.[/]",
+                "`/plan` is no longer part of the default Gauss workflow. Use /prove, /draft, /autoprove, /formalize, /autoformalize, /optimize, or /autooptimize for Lean work.",
             )
         elif cmd_lower == "/retry":
             retry_msg = self.retry_last()
@@ -4080,8 +4089,8 @@ class GaussCLI:
         elif cmd_lower.startswith("/skills"):
             self._print_surface_notice(
                 "[bold yellow]Bundled skills are not part of the default Gauss distribution.[/] "
-                "[dim]Gauss stages `/prove`, `/draft`, `/autoprove`, `/formalize`, and `/autoformalize` automatically.[/]",
-                "Bundled skills are not part of the default Gauss distribution. Gauss stages /prove, /draft, /autoprove, /formalize, and /autoformalize automatically.",
+                "[dim]Gauss stages `/prove`, `/draft`, `/autoprove`, `/formalize`, `/autoformalize`, `/optimize`, and `/autooptimize` automatically.[/]",
+                "Bundled skills are not part of the default Gauss distribution. Gauss stages /prove, /draft, /autoprove, /formalize, /autoformalize, /optimize, and /autooptimize automatically.",
             )
         elif cmd_lower == "/platforms" or cmd_lower == "/gateway":
             self._show_gateway_status()
