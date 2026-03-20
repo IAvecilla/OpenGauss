@@ -7,8 +7,9 @@
 #
 # Supported contract:
 # - Run from the root of a checked-out math-inc/opengauss repository.
-# - Linux only. Ubuntu/Debian/WSL are the primary supported environments.
-# - Automatic system package installation is only supported on Debian/Ubuntu.
+# - Linux and macOS. Ubuntu/Debian/WSL are the primary Linux environments.
+# - Automatic system package installation is supported on Debian/Ubuntu (apt)
+#   and macOS (Homebrew).
 #
 # Usage:
 #   ./scripts/install.sh
@@ -41,6 +42,7 @@ SKIP_SYSTEM_PACKAGES=false
 OS=""
 DISTRO=""
 DEBIAN_LIKE=false
+IS_MACOS=false
 UV_CMD=""
 FILE_PYTHON="python3"
 VENV_DIR=""
@@ -60,7 +62,7 @@ Options:
   --gauss-home PATH       Override the Gauss home directory (default: ~/.gauss)
   --workspace-dir PATH    Override the prewarmed Lean workspace path
                           (default: ~/GaussWorkspace)
-  --skip-system-packages  Do not run apt-get even on Debian/Ubuntu
+  --skip-system-packages  Do not install system packages (apt/brew)
   --recreate-venv         Remove and recreate the repository virtualenv
   -h, --help              Show this help
 
@@ -174,13 +176,13 @@ detect_os() {
             fi
             ;;
         Darwin*)
-            log_error "This workflow-derived installer is Linux-only."
-            log_info "Use a Linux checkout (Ubuntu/Debian/WSL recommended) and rerun ./scripts/install.sh."
-            exit 1
+            OS="macos"
+            IS_MACOS=true
+            DISTRO="macos"
             ;;
         *)
             log_error "Unsupported operating system: $(uname -s)"
-            log_info "Use a Linux checkout (Ubuntu/Debian/WSL recommended) and rerun ./scripts/install.sh."
+            log_info "Use a Linux (Ubuntu/Debian/WSL) or macOS checkout and rerun ./scripts/install.sh."
             exit 1
             ;;
     esac
@@ -191,7 +193,11 @@ detect_os() {
             ;;
     esac
 
-    log_success "Detected Linux environment ($DISTRO)"
+    if [ "$IS_MACOS" = true ]; then
+        log_success "Detected macOS environment ($(sw_vers -productVersion 2>/dev/null || echo 'unknown'))"
+    else
+        log_success "Detected Linux environment ($DISTRO)"
+    fi
 }
 
 require_repo_checkout() {
@@ -231,7 +237,13 @@ ensure_local_bin_path() {
 
 ensure_required_commands() {
     local missing=()
-    local commands=(bash curl git gcc jq make pkg-config python3 rg tmux unzip xz zip ffmpeg)
+    local commands
+    if [ "$IS_MACOS" = true ]; then
+        # macOS: pkg-config and xz are optional; Xcode CLT provides make/gcc equivalents
+        commands=(bash curl git jq python3 rg tmux unzip zip ffmpeg)
+    else
+        commands=(bash curl git gcc jq make pkg-config python3 rg tmux unzip xz zip ffmpeg)
+    fi
     local cmd
     for cmd in "${commands[@]}"; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -244,24 +256,30 @@ ensure_required_commands() {
     fi
 
     log_error "Missing required commands: ${missing[*]}"
-    if [ "$DEBIAN_LIKE" = true ]; then
+    if [ "$IS_MACOS" = true ]; then
+        log_info "Run without --skip-system-packages to install via Homebrew, or install them manually."
+    elif [ "$DEBIAN_LIKE" = true ]; then
         log_info "Run without --skip-system-packages or install them manually with apt-get."
     else
         log_info "Install the missing tools manually and rerun the installer."
-        log_info "Ubuntu/Debian/WSL are the primary supported environments for this workflow-derived install path."
     fi
     exit 1
 }
 
 install_system_packages() {
     if [ "$SKIP_SYSTEM_PACKAGES" = true ]; then
-        log_info "Skipping apt-get bootstrap (--skip-system-packages)"
+        log_info "Skipping system package bootstrap (--skip-system-packages)"
         ensure_required_commands
         return
     fi
 
+    if [ "$IS_MACOS" = true ]; then
+        install_macos_packages
+        return
+    fi
+
     if [ "$DEBIAN_LIKE" != true ]; then
-        log_warn "Automatic system package installation is only supported on Debian/Ubuntu."
+        log_warn "Automatic system package installation is only supported on Debian/Ubuntu and macOS."
         ensure_required_commands
         return
     fi
@@ -291,6 +309,45 @@ install_system_packages() {
     export DEBIAN_FRONTEND=noninteractive
     run_root apt-get update -y
     run_root apt-get install -y --no-install-recommends "${packages[@]}"
+    ensure_required_commands
+    log_success "System packages are ready"
+}
+
+install_macos_packages() {
+    # Ensure Xcode Command Line Tools are installed (provides git, make, clang, etc.)
+    if ! xcode-select -p >/dev/null 2>&1; then
+        log_info "Installing Xcode Command Line Tools..."
+        xcode-select --install 2>/dev/null || true
+        log_warn "Xcode CLT installation may require manual approval."
+        log_info "After installation completes, rerun ./scripts/install.sh."
+        exit 1
+    fi
+    log_success "Xcode Command Line Tools found"
+
+    if ! command -v brew >/dev/null 2>&1; then
+        log_info "Homebrew not found. Installing Homebrew..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        # Add Homebrew to PATH for Apple Silicon and Intel Macs
+        if [ -x /opt/homebrew/bin/brew ]; then
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+        elif [ -x /usr/local/bin/brew ]; then
+            eval "$(/usr/local/bin/brew shellenv)"
+        fi
+        if ! command -v brew >/dev/null 2>&1; then
+            log_error "Homebrew installation failed. Install it manually: https://brew.sh"
+            exit 1
+        fi
+    fi
+
+    local packages=(
+        ffmpeg
+        jq
+        ripgrep
+        tmux
+    )
+
+    log_info "Installing macOS workflow prerequisites via Homebrew..."
+    brew install "${packages[@]}" 2>/dev/null || true
     ensure_required_commands
     log_success "System packages are ready"
 }
@@ -340,6 +397,20 @@ ensure_nodejs() {
         fi
     fi
 
+    if [ "$IS_MACOS" = true ]; then
+        log_info "Installing Node.js ${NODE_MAJOR}.x via Homebrew..."
+        brew install "node@${NODE_MAJOR}" 2>/dev/null || brew install node 2>/dev/null
+        # Ensure the keg-only node@NN is linked
+        brew link --overwrite "node@${NODE_MAJOR}" 2>/dev/null || true
+        if command -v node >/dev/null 2>&1; then
+            log_success "Node.js ready: $(node -v)"
+        else
+            log_error "Node.js installation failed. Install Node.js ${NODE_MAJOR}.x manually."
+            exit 1
+        fi
+        return
+    fi
+
     if [ "$DEBIAN_LIKE" != true ]; then
         log_error "Node.js ${NODE_MAJOR}.x is required."
         log_info "Install Node.js ${NODE_MAJOR}.x and npm manually, then rerun ./scripts/install.sh."
@@ -353,27 +424,36 @@ ensure_nodejs() {
 }
 
 ensure_global_cli_tools() {
-    log_info "Installing Claude Code and OpenAI Codex into ~/.local..."
+    log_info "Ensuring Claude Code and OpenAI Codex are available..."
     mkdir -p "$HOME/.local/bin"
-
-    npm install -g --prefix "$HOME/.local" @anthropic-ai/claude-code@latest >/dev/null 2>&1 \
-        || npm install -g --prefix "$HOME/.local" @anthropic-ai/claude-code >/dev/null 2>&1
-    npm install -g --prefix "$HOME/.local" @openai/codex@latest >/dev/null 2>&1 \
-        || npm install -g --prefix "$HOME/.local" @openai/codex >/dev/null 2>&1
-
     export PATH="$HOME/.local/bin:$PATH"
 
-    if ! command -v claude >/dev/null 2>&1; then
-        log_error "Claude Code install did not provide a claude executable."
-        exit 1
-    fi
-    if ! command -v codex >/dev/null 2>&1; then
-        log_error "OpenAI Codex install did not provide a codex executable."
-        exit 1
+    # Claude Code (required)
+    if command -v claude >/dev/null 2>&1; then
+        log_success "Claude Code already installed: $(claude --version 2>/dev/null || printf 'installed')"
+    else
+        log_info "Installing Claude Code..."
+        if ! npm install -g --prefix "$HOME/.local" @anthropic-ai/claude-code@latest 2>&1; then
+            npm install -g --prefix "$HOME/.local" @anthropic-ai/claude-code 2>&1 || true
+        fi
+        if ! command -v claude >/dev/null 2>&1; then
+            log_error "Claude Code install did not provide a claude executable."
+            exit 1
+        fi
+        log_success "Claude Code ready: $(claude --version 2>/dev/null || printf 'installed')"
     fi
 
-    log_success "Claude Code ready: $(claude --version 2>/dev/null || printf 'installed')"
-    log_success "OpenAI Codex ready: $(codex --version 2>/dev/null || printf 'installed')"
+    # OpenAI Codex (optional — alternative backend)
+    if command -v codex >/dev/null 2>&1; then
+        log_success "OpenAI Codex already installed: $(codex --version 2>/dev/null || printf 'installed')"
+    else
+        log_info "Installing OpenAI Codex (optional backend)..."
+        if npm install -g --prefix "$HOME/.local" @openai/codex@latest 2>&1; then
+            log_success "OpenAI Codex ready: $(codex --version 2>/dev/null || printf 'installed')"
+        else
+            log_warn "OpenAI Codex install failed (optional — codex backend will not be available)"
+        fi
+    fi
 }
 
 ensure_lean_toolchain() {
@@ -597,7 +677,7 @@ PY
 ensure_shell_runtime_block() {
     log_info "Writing an idempotent shell runtime block..."
 
-    "$FILE_PYTHON" - "$GAUSS_HOME" "$REPO_ROOT" "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" <<'PY'
+    "$FILE_PYTHON" - "$GAUSS_HOME" "$REPO_ROOT" "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$HOME/.zprofile" <<'PY'
 from pathlib import Path
 import re
 import sys
@@ -623,7 +703,18 @@ pattern = re.compile(
     r"(?ms)^# >>> gauss workflow installer env >>>\n.*?^# <<< gauss workflow installer env <<<\n?"
 )
 
+import os
+
+written = []
+skipped = []
 for config_path in shell_configs:
+    # Skip symlinks (e.g. Nix Home Manager managed files) and unwritable files
+    if config_path.is_symlink():
+        skipped.append(str(config_path) + " (symlink)")
+        continue
+    if config_path.exists() and not os.access(config_path, os.W_OK):
+        skipped.append(str(config_path) + " (not writable)")
+        continue
     existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     if pattern.search(existing):
         updated = pattern.sub(block, existing)
@@ -633,6 +724,12 @@ for config_path in shell_configs:
             updated += "\n\n"
         updated += block
     config_path.write_text(updated, encoding="utf-8")
+    written.append(str(config_path))
+
+for s in skipped:
+    print(f"  skipped {s}", file=sys.stderr)
+if not written:
+    print("WARNING: no writable shell config found — add the gauss env block manually", file=sys.stderr)
 PY
 
     export GAUSS_HOME
