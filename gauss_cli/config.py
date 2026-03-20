@@ -136,6 +136,9 @@ DEFAULT_CONFIG = {
             "handoff_mode": "auto",
             "auth_mode": "auto",
             "managed_state_dir": "",
+            "lean4_skills_url": "",
+            "lean4_skills_rev": "",
+            "lean4_skills_local": "",
         },
         "project": {
             "template_source": "",

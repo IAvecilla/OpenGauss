@@ -668,13 +668,28 @@ def _prepare_shared_bundle(
     for path in (managed_root, assets_root, startup_dir, mcp_dir):
         path.mkdir(parents=True, exist_ok=True)
 
-    lean4_checkout = assets_root / "lean4-skills"
-    _ensure_git_checkout(
-        repo_url=LEAN4_SKILLS_URL,
-        revision=LEAN4_SKILLS_REV,
-        destination=lean4_checkout,
-        git_executable=git_executable,
-    )
+    # Resolve lean4-skills source: config/env overrides, then defaults
+    gauss_cfg = _mapping_get(config, "gauss")
+    auto_cfg = _mapping_get(gauss_cfg, "autoformalize")
+    local_skills_override = env.get("GAUSS_LEAN4_SKILLS_LOCAL", "").strip()
+    if not local_skills_override:
+        local_skills_override = str(auto_cfg.get("lean4_skills_local", "") or "").strip()
+    if local_skills_override:
+        lean4_checkout = Path(local_skills_override).expanduser().resolve()
+        if not lean4_checkout.is_dir():
+            raise AutoformalizeStagingError(
+                f"GAUSS_LEAN4_SKILLS_LOCAL points to a missing directory: {lean4_checkout}"
+            )
+    else:
+        skills_url = str(auto_cfg.get("lean4_skills_url", "") or "").strip() or LEAN4_SKILLS_URL
+        skills_rev = str(auto_cfg.get("lean4_skills_rev", "") or "").strip() or LEAN4_SKILLS_REV
+        lean4_checkout = assets_root / "lean4-skills"
+        _ensure_git_checkout(
+            repo_url=skills_url,
+            revision=skills_rev,
+            destination=lean4_checkout,
+            git_executable=git_executable,
+        )
 
     plugin_source = lean4_checkout / "plugins" / "lean4"
     skill_source = plugin_source / "skills" / "lean4"
@@ -823,7 +838,7 @@ def _build_claude_runtime(
     backend_home = shared_bundle.managed_root / "claude-home"
     backend_config_path = backend_home / ".claude.json"
     mcp_config_path = shared_bundle.mcp_dir / "lean-lsp.mcp.json"
-    marketplace_source = shared_bundle.assets_root / "lean4-skills"
+    marketplace_source = shared_bundle.plugin_source.parent.parent
     for path in (backend_home, mcp_config_path.parent):
         path.mkdir(parents=True, exist_ok=True)
 
