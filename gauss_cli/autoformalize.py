@@ -30,8 +30,8 @@ AUTOFORMALIZE_USAGE = (
 )
 CLAUDE_MODEL = "claude-opus-4-6"
 DEFAULT_MANAGED_CLAUDE_THEME = "dark"
-LEAN4_SKILLS_URL = "https://github.com/cameronfreer/lean4-skills.git"
-LEAN4_SKILLS_REV = "cdf1d675c3588227f1b1e849573c8132bf500846"
+LEAN4_SKILLS_URL = "https://github.com/IAvecilla/lean4-skills.git"
+LEAN4_SKILLS_REV = "b1b1688c73db3273d215f5e8f92a351fb689ae43"
 LEAN_LSP_MCP_GIT_SPEC = (
     "git+https://github.com/oOo0oOo/lean-lsp-mcp.git@"
     "2c331c78a7bb242aab983f40605c3d2b48eeeb3d"
